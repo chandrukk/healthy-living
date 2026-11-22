@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2f855a">
+  <meta name="description" content="A personal healthy living tracker: questionnaire, daily plan, quick log and progress charts.">
+  <title>Healthy Living</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Healthy Living">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="title">Healthy Living</h1>
+  </header>
+
+  <main id="app" aria-live="polite"></main>
+
+  <nav class="tabbar" id="tabbar" hidden>
+    <button data-tab="today" aria-label="Today"><span class="ti">&#9745;</span>Today</button>
+    <button data-tab="progress" aria-label="Progress"><span class="ti">&#128200;</span>Progress</button>
+    <button data-tab="plan" aria-label="My plan"><span class="ti">&#127919;</span>My plan</button>
+    <button data-tab="settings" aria-label="Settings"><span class="ti">&#9881;</span>Settings</button>
+  </nav>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
