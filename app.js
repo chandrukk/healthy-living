@@ -297,7 +297,11 @@ function renderField(f) {
         `<button type="button" class="chip ${(v || []).includes(val) ? 'on' : ''}" data-multi="${f.id}" data-val="${esc(val)}">${esc(lbl)}</button>`).join('')}</div>`;
       break;
   }
-  return `<label class="field"><span>${esc(f.label)}</span>${inner}</label>`;
+  if (['text', 'number', 'time', 'weight'].includes(f.type) || (f.type === 'height' && !us)) {
+    return `<label class="field"><span>${esc(f.label)}</span>${inner}</label>`;
+  }
+  // Groups of buttons or several inputs: a <label> here would make a tap on the question text press the first button.
+  return `<div class="field" role="group" aria-label="${esc(f.label)}"><span>${esc(f.label)}</span>${inner}</div>`;
 }
 
 function renderQuestionnaire() {
@@ -427,8 +431,13 @@ const HABITS = {
 };
 const FREQ_HIGH = 2; // "More than half the days" or more
 
+function latestWeightKg() {
+  const keys = Object.keys(logs).filter(k => logs[k].weightKg != null && k <= todayKey()).sort();
+  return keys.length ? Number(logs[keys[keys.length - 1]].weightKg) : null;
+}
+
 function computePlan(p) {
-  const kg = Number(p.weightKg), cm = Number(p.heightCm), age = Number(p.age);
+  const kg = latestWeightKg() || Number(p.weightKg), cm = Number(p.heightCm), age = Number(p.age);
   const sexAdj = p.sex === 'male' ? 5 : p.sex === 'female' ? -161 : -78;
   const bmr = 10 * kg + 6.25 * cm - 5 * age + sexAdj; // Mifflin-St Jeor
   const factor = { sitting: 1.2, walking: 1.375, feet: 1.55, physical: 1.725 }[p.typicalDay] || 1.2;
@@ -552,8 +561,33 @@ function ring(value, target, label, numText, color) {
 }
 
 function scaleInput(id, value, low, high) {
-  return `<input type="range" class="slider" min="1" max="5" step="1" data-log="${id}" value="${value || 3}" aria-label="${id}">
-    <div class="scale-labels"><span>1 ${esc(low)}</span><span>${value ? `<b>${value}</b>` : 'not set'}</span><span>5 ${esc(high)}</span></div>`;
+  return `<div class="chips scale">${[1, 2, 3, 4, 5].map(n =>
+      `<button class="chip ${value === n ? 'on' : ''}" data-scale="${id}" data-val="${n}" aria-pressed="${value === n}">${n}</button>`).join('')}</div>
+    <div class="scale-labels"><span>1 ${esc(low)}</span><span>5 ${esc(high)}</span></div>`;
+}
+
+function scaleField(id, label, value, low, high) {
+  return `<div class="field" role="group" aria-label="${esc(label)}"><span>${esc(label)}</span>${scaleInput(id, value, low, high)}</div>`;
+}
+
+function ringsHTML(plan, L) {
+  const kcalTotal = Object.values(L.kcal || {}).reduce((a, b) => a + (Number(b) || 0), 0);
+  return `
+    ${ring(kcalTotal, plan.calories, 'Calories', `${kcalTotal.toLocaleString()}/${plan.calories.toLocaleString()}`, '#dd6b20')}
+    ${ring(L.water, plan.waterGlasses, 'Water', `${L.water || 0}/${plan.waterGlasses} glasses`, 'var(--accent)')}
+    ${ring(L.activityMin, plan.sessionMin, 'Activity', `${L.activityMin || 0}/${plan.sessionMin} min`, 'var(--brand)')}
+    ${ring(L.sleepHours, 7, 'Sleep', `${L.sleepHours || 0}/7+ h`, '#805ad5')}
+    ${ring(L.mindfulMin, plan.mindfulMin, 'Mind', `${L.mindfulMin || 0}/${plan.mindfulMin} min`, '#319795')}
+    ${ring(L.habit ? 1 : 0, 1, 'Weekly habit', L.habit ? 'Done' : 'Not yet', '#d69e2e')}`;
+}
+
+// Update the rings and calorie total in place, without re-rendering the page (keeps keyboard focus on phones).
+function refreshSummary() {
+  const plan = computePlan(profile), L = getLog(viewDate);
+  const r = $('#rings');
+  if (r) r.innerHTML = ringsHTML(plan, L);
+  const kt = $('#kcalTotal');
+  if (kt) kt.textContent = Object.values(L.kcal || {}).reduce((a, b) => a + (Number(b) || 0), 0).toLocaleString();
 }
 
 function renderToday() {
@@ -582,14 +616,7 @@ function renderToday() {
     </div>
 
     <div class="card">
-      <div class="rings">
-        ${ring(kcalTotal, plan.calories, 'Calories', `${kcalTotal.toLocaleString()}/${plan.calories.toLocaleString()}`, '#dd6b20')}
-        ${ring(L.water, plan.waterGlasses, 'Water', `${L.water || 0}/${plan.waterGlasses} glasses`, 'var(--accent)')}
-        ${ring(L.activityMin, plan.sessionMin, 'Activity', `${L.activityMin || 0}/${plan.sessionMin} min`, 'var(--brand)')}
-        ${ring(L.sleepHours, 7, 'Sleep', `${L.sleepHours || 0}/7+ h`, '#805ad5')}
-        ${ring(L.mindfulMin, plan.mindfulMin, 'Mind', `${L.mindfulMin || 0}/${plan.mindfulMin} min`, '#319795')}
-        ${ring(L.habit ? 1 : 0, 1, 'Weekly habit', L.habit ? 'Done' : 'Not yet', '#d69e2e')}
-      </div>
+      <div class="rings" id="rings">${ringsHTML(plan, L)}</div>
     </div>
 
     <div class="card">
@@ -611,7 +638,7 @@ function renderToday() {
     <div class="card">
       <div class="row between"><h2 style="margin:0">Meals</h2>
         ${veg === null ? '' : `<span class="pill ${veg ? 'veg' : 'nonveg'}">${veg ? 'Veg day' : 'Non-veg day'}</span>`}</div>
-      <p class="muted small">Rate each meal and add calories if you know them. <b>${kcalTotal.toLocaleString()} of ${plan.calories.toLocaleString()} kcal</b> so far.<br>
+      <p class="muted small">Rate each meal and add calories if you know them. <b><span id="kcalTotal">${kcalTotal.toLocaleString()}</span> of ${plan.calories.toLocaleString()} kcal</b> so far.<br>
         Rough guide: light meal 300 to 400, regular 500 to 700, large 800+ kcal.</p>
       ${mealSlots(p).map(([id, lbl]) => `
         <h3>${esc(lbl)}</h3>
@@ -649,23 +676,23 @@ function renderToday() {
           <input type="number" inputmode="decimal" step="0.5" min="0" max="16" data-log="sleepHours" value="${L.sleepHours ?? ''}"></label>
         <div></div>
       </div>
-      <label class="field"><span>Sleep quality</span>${scaleInput('sleepQuality', L.sleepQuality, 'poor', 'great')}</label>
+      ${scaleField('sleepQuality', 'Sleep quality', L.sleepQuality, 'poor', 'great')}
     </div>
 
     <div class="card">
       <h2>Mind and mood</h2>
-      <label class="field"><span>Mood</span>${scaleInput('mood', L.mood, 'low', 'great')}</label>
-      <label class="field"><span>Energy</span>${scaleInput('energy', L.energy, 'drained', 'full')}</label>
-      <label class="field"><span>Stress</span>${scaleInput('stressLevel', L.stressLevel, 'calm', 'very')}</label>
-      <label class="field"><span>Mindful minutes (meditation, prayer, breathing, quiet walk). Target ${plan.mindfulMin}</span>
+      ${scaleField('mood', 'Mood', L.mood, 'low', 'great')}
+      ${scaleField('energy', 'Energy', L.energy, 'drained', 'full')}
+      ${scaleField('stressLevel', 'Stress', L.stressLevel, 'calm', 'very stressed')}
+      <div class="field"><span>Mindful minutes (meditation, prayer, breathing, quiet walk). Target ${plan.mindfulMin}</span>
         <div class="counter">
           <button class="iconbtn" data-act="mindMinus" aria-label="Remove 5 minutes">&minus;</button>
           <span class="val">${L.mindfulMin || 0}</span>
           <button class="iconbtn" data-act="mindPlus" aria-label="Add 5 minutes">+</button>
           <span class="muted">minutes</span>
-        </div></label>
-      <label class="field"><span>Did you connect with someone today?</span>
-        <button class="chip ${L.connected ? 'on' : ''}" data-act="connected">${L.connected ? '&#10003; Yes' : 'Not yet'}</button></label>
+        </div></div>
+      <div class="field"><span>Did you connect with someone today?</span>
+        <button class="chip ${L.connected ? 'on' : ''}" data-act="connected">${L.connected ? '&#10003; Yes' : 'Not yet'}</button></div>
       <label class="field"><span>One good thing about today</span>
         <input type="text" data-log="goodThing" value="${esc(L.goodThing || '')}" placeholder="Big or small"></label>
     </div>
@@ -693,7 +720,7 @@ function onTodayChange(e) {
     const kc = Object.assign({}, getLog(viewDate).kcal || {});
     if (t.value === '') delete kc[t.dataset.kcal]; else kc[t.dataset.kcal] = Number(t.value);
     setLog(viewDate, { kcal: Object.keys(kc).length ? kc : '' });
-    if (e.type === 'change') { const y = window.scrollY; renderToday(); window.scrollTo(0, y); }
+    refreshSummary();
     return;
   }
   if (!id) return;
@@ -705,11 +732,7 @@ function onTodayChange(e) {
   } else {
     setLog(k, { [id]: v });
   }
-  if (t.type === 'range' || id === 'activityMin' || id === 'sleepHours') {
-    const y = window.scrollY;
-    renderToday();
-    window.scrollTo(0, y);
-  }
+  refreshSummary();
 }
 
 function onTodayClick(e) {
@@ -717,7 +740,10 @@ function onTodayClick(e) {
   if (!b) return;
   const k = viewDate, L = getLog(k);
   const y = window.scrollY;
-  if (b.dataset.meal) {
+  if (b.dataset.scale) {
+    const n = Number(b.dataset.val);
+    setLog(k, { [b.dataset.scale]: L[b.dataset.scale] === n ? '' : n });
+  } else if (b.dataset.meal) {
     const meals = Object.assign({}, L.meals || {});
     if (meals[b.dataset.meal] === b.dataset.val) delete meals[b.dataset.meal];
     else meals[b.dataset.meal] = b.dataset.val;
@@ -1057,8 +1083,7 @@ function onRestoreFile(e) {
 app.addEventListener('submit', (e) => { if (e.target.id === 'qform') onQuestionnaireSubmit(e); });
 app.addEventListener('input', (e) => {
   if (!currentTab) onQuestionnaireInput(e);
-  else if (currentTab === 'today' && e.target.type !== 'range' && (e.target.dataset.log || e.target.dataset.kcal) &&
-    !['activityMin', 'sleepHours'].includes(e.target.dataset.log)) onTodayChange(e);
+  else if (currentTab === 'today' && (e.target.dataset.log || e.target.dataset.kcal)) onTodayChange(e);
 });
 app.addEventListener('change', (e) => {
   if (e.target.id === 'restoreFile') return onRestoreFile(e);
@@ -1080,6 +1105,17 @@ $('#tabbar').addEventListener('click', (e) => {
   if (!b) return;
   if (b.dataset.tab === 'today') viewDate = todayKey();
   showTab(b.dataset.tab);
+});
+
+let lastSeenToday = todayKey();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !profile) return;
+  const t = todayKey();
+  if (t !== lastSeenToday) {
+    if (viewDate === lastSeenToday) viewDate = t;
+    lastSeenToday = t;
+    if (currentTab) showTab(currentTab);
+  }
 });
 
 // ---------- Start ----------
