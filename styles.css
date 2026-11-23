@@ -67,8 +67,8 @@ main { max-width: 720px; margin: 0 auto; padding: 16px; }
 @media (min-width: 640px) { .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; } }
 @media (max-width: 639px) { .grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } }
 
-label.field { display: block; margin: 12px 0; }
-label.field > span { display: block; font-weight: 600; margin-bottom: 6px; font-size: .95rem; }
+.field { display: block; margin: 12px 0; }
+.field > span { display: block; font-weight: 600; margin-bottom: 6px; font-size: .95rem; }
 input[type=text], input[type=number], input[type=time], textarea, select {
   width: 100%;
   font: inherit;
@@ -209,3 +209,4 @@ input.kcal { width: 96px; flex: 0 0 96px; padding: 7px 10px; }
 .pill { font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
 .pill.veg { background: #c6f6d5; color: #22543d; }
 .pill.nonveg { background: #fed7d7; color: #742a2a; }
+.chips.scale .chip { min-width: 44px; justify-content: center; text-align: center; }
