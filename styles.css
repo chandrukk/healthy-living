@@ -210,3 +210,30 @@ input.kcal { width: 96px; flex: 0 0 96px; padding: 7px 10px; }
 .pill.veg { background: #c6f6d5; color: #22543d; }
 .pill.nonveg { background: #fed7d7; color: #742a2a; }
 .chips.scale .chip { min-width: 44px; justify-content: center; text-align: center; }
+
+/* Quick-add bar: stays under the header while you scroll Today */
+.quickbar {
+  position: sticky; top: calc(46px + env(safe-area-inset-top)); z-index: 4;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+  background: var(--bg); padding: 6px 0 10px; margin: -4px 0 6px;
+}
+.qbtn {
+  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  border-radius: 12px; padding: 8px 4px; cursor: pointer; box-shadow: var(--shadow);
+  display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 52px;
+}
+.qbtn span { font-weight: 700; font-size: .95rem; }
+.qbtn small { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.qbtn.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.qbtn.on small { color: #e6f4ea; }
+.qbtn:active { transform: scale(.97); }
+
+.meal { padding: 4px 0 12px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.meal:last-of-type { border-bottom: 0; }
+.meal > textarea.food { margin-bottom: 6px; min-height: 0; }
+.estimate { margin: 0 0 8px; font-size: .92rem; }
+.estimate:empty { display: none; }
+.estimate .unknown { margin-top: 6px; color: var(--warn); }
+.estimate .unknown .chip { padding: 4px 10px; font-size: .8rem; margin-left: 6px; }
+.banner.row { gap: 10px; }
+.banner .btn { padding: 8px 14px; }

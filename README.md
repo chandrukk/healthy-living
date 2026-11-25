@@ -10,7 +10,7 @@ A personal healthy living app for phone and laptop. It starts with a short quest
 | --- | --- |
 | Questionnaire | 7 short screens: about you, goals, activity, food (including veg and non-veg days), sleep, mind and well-being, health notes |
 | My plan | Daily calories (Mifflin-St Jeor), water, workout days and minutes, steps, sleep, mindful minutes, and one habit a week picked from your answers |
-| Today | One-screen log: calories and rating per meal, water, activity, steps, sleep, mood, energy, stress, mindful minutes, connection, one good thing, weight, notes |
+| Today | Quick-add bar (water, meal, mindful minutes, habit), meals typed in plain words with calorie estimates, water, activity, steps, sleep, mood, energy, stress, mindful minutes, connection, one good thing, weight, notes |
 | Progress | 7 and 30 day stats, streaks, and charts for weight, sleep, mood, energy, stress, calories and activity |
 | Settings | Export CSV for analysis, backup and restore (to move devices), units (US or metric), update answers, delete data |
 
@@ -36,12 +36,13 @@ Then open http://localhost:8000.
 
 - `index.html`: page shell and tab bar
 - `app.js`: questionnaire, plan engine, daily log, charts, export
+- `foods.js`: food table (about 180 Indian and Western foods) and the calorie estimator
 - `styles.css`: phone-first layout with a laptop sidebar, light and dark mode
 - `sw.js`, `manifest.webmanifest`, `icons/`: installable app and offline support
 
 ## CSV columns (for data science)
 
-`date, weight_kg, water_glasses, activity_type, activity_minutes, steps, sleep_hours, sleep_quality, mood, energy, stress, mindful_minutes, connected, good_thing, habit_done, veg_day, calories_total, meal1..meal4, meal1_kcal..meal4_kcal, meal_note, notes`
+`date, weight_kg, water_glasses, activity_type, activity_minutes, steps, sleep_hours, sleep_quality, mood, energy, stress, mindful_minutes, connected, good_thing, habit_done, veg_day, calories_total, meal1..meal4, meal1_kcal..meal4_kcal, meal1_food..meal4_food, meal_note, notes`
 
 ## Disclaimer
 

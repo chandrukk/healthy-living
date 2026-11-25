@@ -27,7 +27,14 @@ const store = {
   }
 };
 
+const KEY_FOODS = 'hl.foods';
+const KEY_META = 'hl.meta';
+
 let profile = store.get(KEY_PROFILE, null);
+let customFoods = store.get(KEY_FOODS, []);
+let meta = store.get(KEY_META, {});
+const saveFoods = () => store.set(KEY_FOODS, customFoods);
+const saveMeta = () => store.set(KEY_META, meta);
 let logs = store.get(KEY_LOGS, {});
 const saveProfile = () => store.set(KEY_PROFILE, profile);
 const saveLogs = () => store.set(KEY_LOGS, logs);
@@ -540,7 +547,7 @@ function setLog(k, patch) {
   const cur = Object.assign({}, logs[k] || {}, patch);
   Object.keys(cur).forEach(key => { if (cur[key] === '' || cur[key] == null) delete cur[key]; });
   if (cur.meals && Object.keys(cur.meals).length === 0) delete cur.meals;
-  if (cur.kcal && Object.keys(cur.kcal).length === 0) delete cur.kcal;
+  ['kcal', 'food', 'kcalSrc'].forEach(f => { if (cur[f] && typeof cur[f] === 'object' && Object.keys(cur[f]).length === 0) delete cur[f]; });
   if (Object.keys(cur).length) logs[k] = cur; else delete logs[k];
   saveLogs();
 }
@@ -586,8 +593,97 @@ function refreshSummary() {
   const plan = computePlan(profile), L = getLog(viewDate);
   const r = $('#rings');
   if (r) r.innerHTML = ringsHTML(plan, L);
+  const q = $('#quickbar');
+  if (q) q.innerHTML = quickBarHTML(plan, L);
   const kt = $('#kcalTotal');
   if (kt) kt.textContent = Object.values(L.kcal || {}).reduce((a, b) => a + (Number(b) || 0), 0).toLocaleString();
+}
+
+const MEAL_EXAMPLES = ['e.g. 2 slices bread with omelette', 'e.g. 3 chapatis with dal and bhindi', 'e.g. rice with fish curry and salad', 'e.g. banana and a handful of almonds'];
+
+function estimateHTML(slot, text, src) {
+  if (!text || !text.trim()) return '';
+  const r = estimateMeal(text, customFoods);
+  let html = '';
+  if (r.items.length) {
+    html += `<div><b>&asymp; ${r.total.toLocaleString()} kcal</b>${src === 'manual' ? ' <span class="muted">(you typed your own number below)</span>' : ''}</div>
+      <div class="muted small">${r.items.map(it => esc(describeItem(it))).join(' &middot; ')}</div>`;
+  }
+  r.unknown.forEach(u => {
+    html += `<div class="small unknown">Not recognised: &ldquo;${esc(u)}&rdquo; <button class="chip" data-addfood="${esc(u)}" data-slot="${slot}">Add calories</button></div>`;
+  });
+  return html;
+}
+
+// Put the estimate into the meal's calorie box unless the person typed their own number there.
+function applyEstimate(k, slot) {
+  const L = getLog(k);
+  const text = (L.food || {})[slot];
+  const src = (L.kcalSrc || {})[slot];
+  const kc = Object.assign({}, L.kcal || {});
+  if (src !== 'manual') {
+    const r = text ? estimateMeal(text, customFoods) : { total: 0 };
+    if (r.total > 0) kc[slot] = r.total; else delete kc[slot];
+    setLog(k, { kcal: Object.keys(kc).length ? kc : '' });
+    const box = $(`[data-kcal="${slot}"]`);
+    if (box && document.activeElement !== box) box.value = kc[slot] ?? '';
+  }
+  const est = $(`#est-${slot}`);
+  if (est) est.innerHTML = estimateHTML(slot, text, src);
+  refreshSummary();
+}
+
+function addCustomFood(name) {
+  const clean = name.replace(/^\s*(\d+(\.\d+)?|a|an|one|two|three|half)\s+/i, '').trim();
+  const ans = prompt(`About how many calories in one serving of "${clean}"?\nThe app will remember it for next time.`, '');
+  if (ans == null) return;
+  const n = Number(String(ans).replace(/[^0-9.]/g, ''));
+  if (!n || n <= 0 || n > 5000) { toast('Please enter a number of calories, like 250.'); return; }
+  customFoods = customFoods.filter(f => f.name.toLowerCase() !== clean.toLowerCase()).concat([{ name: clean, kcal: Math.round(n) }]);
+  saveFoods();
+  mealSlots(profile).forEach(([s]) => applyEstimate(viewDate, s));
+  toast(`Saved "${clean}" at ${Math.round(n)} kcal per serving`);
+}
+
+function quickBarHTML(plan, L) {
+  return `
+    <button class="qbtn" data-act="waterPlus" aria-label="Add a glass of water"><span>&#128167; +1</span><small>${L.water || 0}/${plan.waterGlasses} water</small></button>
+    <button class="qbtn" data-act="quickMeal" aria-label="Log a meal"><span>&#127869; Meal</span><small>${Object.keys(L.food || {}).length} logged</small></button>
+    <button class="qbtn" data-act="mindPlus" aria-label="Add 5 mindful minutes"><span>&#129496; +5</span><small>${L.mindfulMin || 0}/${plan.mindfulMin} min</small></button>
+    <button class="qbtn ${L.habit ? 'on' : ''}" data-act="habit" aria-label="Weekly habit done"><span>${L.habit ? '&#10003;' : '&#9744;'} Habit</span><small>${L.habit ? 'done' : 'not yet'}</small></button>`;
+}
+
+function backupDue() {
+  const days = Object.keys(logs).length;
+  if (days < 3) return false;
+  if (!meta.lastBackup) return true;
+  return daysBetween(dateKey(new Date(meta.lastBackup)), todayKey()) >= 7;
+}
+
+function backupJSON() {
+  return JSON.stringify({ app: 'healthy-living', version: 2, exportedAt: new Date().toISOString(), profile, logs, foods: customFoods }, null, 2);
+}
+
+// On phones, the share sheet lets you save the file to Files, iCloud or Google Drive, or email it to yourself.
+async function saveBackup() {
+  const name = `healthy-living-backup-${todayKey()}.json`;
+  const text = backupJSON();
+  let done = false;
+  try {
+    const file = new File([text], name, { type: 'application/json' });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      await navigator.share({ files: [file], title: 'Healthy Living backup' });
+      done = true;
+    }
+  } catch (err) {
+    if (err && err.name === 'AbortError') return; // closed the share sheet
+  }
+  if (!done) download(name, text, 'application/json');
+  meta.lastBackup = new Date().toISOString();
+  saveMeta();
+  toast('Backup saved');
+  if (currentTab === 'today') renderToday();
+  else if (currentTab === 'settings') renderSettings();
 }
 
 function renderToday() {
@@ -597,6 +693,8 @@ function renderToday() {
   const units = p.units;
   const meals = L.meals || {};
   const kcal = L.kcal || {};
+  const food = L.food || {};
+  const kcalSrc = L.kcalSrc || {};
   const kcalTotal = Object.values(kcal).reduce((a, b) => a + (Number(b) || 0), 0);
   const veg = isVegDay(p, k);
   const recentMoods = [0, 1, 2].map(i => getLog(addDays(k, -i)).mood);
@@ -606,6 +704,8 @@ function renderToday() {
 
   app.innerHTML = `
     ${showReminder ? '<div class="banner warn">Reminder: you haven\'t logged today yet. It takes under 2 minutes.</div>' : ''}
+    ${backupDue() ? `<div class="banner warn row between"><span>Your entries live only on this phone. Save a backup so you can't lose them${meta.lastBackup ? ` (last one ${daysBetween(dateKey(new Date(meta.lastBackup)), t)} days ago)` : ''}.</span>
+      <button class="btn" data-act="backupNow">Save backup</button></div>` : ''}
     ${lowMoodRun ? `<div class="banner warn">Your mood has been at 1 for three days. Be kind to yourself, and consider talking with someone you trust or your doctor. In the US you can call or text 988 any time.</div>` : ''}
     <div class="card">
       <div class="row between">
@@ -614,6 +714,8 @@ function renderToday() {
         <button class="iconbtn" data-act="nextDay" aria-label="Next day" ${k >= t ? 'disabled' : ''}>&#8250;</button>
       </div>
     </div>
+
+    <div class="quickbar" id="quickbar">${quickBarHTML(plan, L)}</div>
 
     <div class="card">
       <div class="rings" id="rings">${ringsHTML(plan, L)}</div>
@@ -638,16 +740,19 @@ function renderToday() {
     <div class="card">
       <div class="row between"><h2 style="margin:0">Meals</h2>
         ${veg === null ? '' : `<span class="pill ${veg ? 'veg' : 'nonveg'}">${veg ? 'Veg day' : 'Non-veg day'}</span>`}</div>
-      <p class="muted small">Rate each meal and add calories if you know them. <b><span id="kcalTotal">${kcalTotal.toLocaleString()}</span> of ${plan.calories.toLocaleString()} kcal</b> so far.<br>
-        Rough guide: light meal 300 to 400, regular 500 to 700, large 800+ kcal.</p>
-      ${mealSlots(p).map(([id, lbl]) => `
-        <h3>${esc(lbl)}</h3>
-        <div class="row">
-          <div class="chips">
-            ${[['good', 'Healthy'], ['ok', 'Okay'], ['heavy', 'Heavy']].map(([v, l]) =>
-              `<button class="chip ${v} ${meals[id] === v ? 'on' : ''}" data-meal="${id}" data-val="${v}">${l}</button>`).join('')}
+      <p class="muted small">Type what you ate and the app estimates the calories (about &plusmn;20%). <b><span id="kcalTotal">${kcalTotal.toLocaleString()}</span> of ${plan.calories.toLocaleString()} kcal</b> so far.</p>
+      ${mealSlots(p).map(([id, lbl], i) => `
+        <div class="meal" id="meal-${id}">
+          <h3>${esc(lbl)}</h3>
+          <textarea class="food" rows="2" data-food="${id}" placeholder="${esc(MEAL_EXAMPLES[i] || MEAL_EXAMPLES[0])}" aria-label="What you ate for ${esc(lbl)}" autocomplete="off">${esc(food[id] || '')}</textarea>
+          <div class="estimate" id="est-${id}">${estimateHTML(id, food[id], kcalSrc[id])}</div>
+          <div class="row">
+            <div class="chips">
+              ${[['good', 'Healthy'], ['ok', 'Okay'], ['heavy', 'Heavy']].map(([v, l]) =>
+                `<button class="chip ${v} ${meals[id] === v ? 'on' : ''}" data-meal="${id}" data-val="${v}">${l}</button>`).join('')}
+            </div>
+            <input class="kcal" type="number" inputmode="numeric" min="0" max="5000" step="10" data-kcal="${id}" value="${kcal[id] ?? ''}" placeholder="kcal" aria-label="${esc(lbl)} calories"><span class="muted small">kcal</span>
           </div>
-          <input class="kcal" type="number" inputmode="numeric" min="0" max="5000" step="10" data-kcal="${id}" value="${kcal[id] ?? ''}" placeholder="kcal" aria-label="${esc(lbl)} calories">
         </div>`).join('')}
       <label class="field"><span>Food note (optional)</span>
         <input type="text" data-log="mealNote" value="${esc(L.mealNote || '')}" placeholder="e.g. skipped breakfast, big lunch out"></label>
@@ -713,14 +818,28 @@ function renderToday() {
 function onTodayChange(e) {
   const t = e.target;
   const id = t.dataset.log;
-  if (!id && !t.dataset.kcal) return;
+  if (!id && !t.dataset.kcal && !t.dataset.food) return;
   const k = viewDate;
   let v = t.value;
+  if (t.dataset.food) {
+    // Typing already saved it; re-drawing on blur would swallow a tap on "Add calories".
+    if (e.type === 'change') return;
+    const slot = t.dataset.food;
+    const f = Object.assign({}, getLog(k).food || {});
+    if (v.trim()) f[slot] = v; else delete f[slot];
+    setLog(k, { food: Object.keys(f).length ? f : '' });
+    applyEstimate(k, slot);
+    return;
+  }
   if (t.dataset.kcal) {
-    const kc = Object.assign({}, getLog(viewDate).kcal || {});
-    if (t.value === '') delete kc[t.dataset.kcal]; else kc[t.dataset.kcal] = Number(t.value);
-    setLog(viewDate, { kcal: Object.keys(kc).length ? kc : '' });
-    refreshSummary();
+    const slot = t.dataset.kcal;
+    const L = getLog(k);
+    const kc = Object.assign({}, L.kcal || {});
+    const src = Object.assign({}, L.kcalSrc || {});
+    if (t.value === '') { delete kc[slot]; delete src[slot]; } else { kc[slot] = Number(t.value); src[slot] = 'manual'; }
+    setLog(k, { kcal: Object.keys(kc).length ? kc : '', kcalSrc: Object.keys(src).length ? src : '' });
+    if (t.value === '' && e.type === 'change') applyEstimate(k, slot);
+    else { const est = $(`#est-${slot}`); if (est) est.innerHTML = estimateHTML(slot, (getLog(k).food || {})[slot], src[slot]); refreshSummary(); }
     return;
   }
   if (!id) return;
@@ -740,6 +859,18 @@ function onTodayClick(e) {
   if (!b) return;
   const k = viewDate, L = getLog(k);
   const y = window.scrollY;
+  if (b.dataset.addfood) {
+    addCustomFood(b.dataset.addfood);
+    return;
+  }
+  if (b.dataset.act === 'backupNow') { saveBackup(); return; }
+  if (b.dataset.act === 'quickMeal') {
+    const slots = mealSlots(profile).map(s => s[0]);
+    const next = slots.find(s => !(L.food || {})[s] && !(L.kcal || {})[s]) || slots[slots.length - 1];
+    const box = $(`[data-food="${next}"]`);
+    if (box) { box.scrollIntoView({ block: 'center', behavior: 'smooth' }); box.focus({ preventScroll: true }); }
+    return;
+  }
   if (b.dataset.scale) {
     const n = Number(b.dataset.val);
     setLog(k, { [b.dataset.scale]: L[b.dataset.scale] === n ? '' : n });
@@ -951,7 +1082,8 @@ function renderPlan() {
 // ---------- Settings, export, import ----------
 const CSV_COLS = ['date', 'weight_kg', 'water_glasses', 'activity_type', 'activity_minutes', 'steps', 'sleep_hours',
   'sleep_quality', 'mood', 'energy', 'stress', 'mindful_minutes', 'connected', 'good_thing', 'habit_done', 'veg_day',
-  'calories_total', 'meal1', 'meal2', 'meal3', 'meal4', 'meal1_kcal', 'meal2_kcal', 'meal3_kcal', 'meal4_kcal', 'meal_note', 'notes'];
+  'calories_total', 'meal1', 'meal2', 'meal3', 'meal4', 'meal1_kcal', 'meal2_kcal', 'meal3_kcal', 'meal4_kcal',
+  'meal1_food', 'meal2_food', 'meal3_food', 'meal4_food', 'meal_note', 'notes'];
 
 function csvCell(v) {
   if (v == null) return '';
@@ -962,12 +1094,12 @@ function csvCell(v) {
 function toCSV() {
   const rows = [CSV_COLS.join(',')];
   Object.keys(logs).sort().forEach(k => {
-    const L = logs[k], m = L.meals || {}, c = L.kcal || {};
+    const L = logs[k], m = L.meals || {}, c = L.kcal || {}, fd = L.food || {};
     const total = Object.values(c).reduce((a, b) => a + (Number(b) || 0), 0);
     const veg = isVegDay(profile, k);
     rows.push([k, L.weightKg != null ? round1(L.weightKg) : '', L.water, L.activityType, L.activityMin, L.steps, L.sleepHours,
       L.sleepQuality, L.mood, L.energy, L.stressLevel, L.mindfulMin, L.connected ? 1 : 0, L.goodThing, L.habit ? 1 : 0,
-      veg === null ? '' : (veg ? 1 : 0), total || '', m.m1, m.m2, m.m3, m.m4, c.m1, c.m2, c.m3, c.m4, L.mealNote, L.notes].map(csvCell).join(','));
+      veg === null ? '' : (veg ? 1 : 0), total || '', m.m1, m.m2, m.m3, m.m4, c.m1, c.m2, c.m3, c.m4, fd.m1, fd.m2, fd.m3, fd.m4, L.mealNote, L.notes].map(csvCell).join(','));
   });
   return rows.join('\n');
 }
@@ -1003,11 +1135,18 @@ function renderSettings() {
       <p class="muted">${count} day${count === 1 ? '' : 's'} logged. Everything is stored only in this browser on this device.</p>
       <div class="row">
         <button class="btn" data-act="exportCsv">Export CSV</button>
-        <button class="btn secondary" data-act="backup">Download backup</button>
+        <button class="btn secondary" data-act="backup">Save backup</button>
         <button class="btn secondary" data-act="restore">Restore backup</button>
       </div>
-      <p class="muted small">CSV is for Excel or Python analysis. A backup file holds your answers and all entries, so you can move to another device.</p>
+      <p class="muted small">CSV is for Excel or Python analysis. A backup file holds your answers, entries and saved foods, so you can move to another device.
+        ${meta.lastBackup ? `Last backup: ${esc(new Date(meta.lastBackup).toLocaleDateString())}.` : 'No backup saved yet.'}</p>
       <input type="file" id="restoreFile" accept="application/json,.json" hidden>
+    </div>
+    <div class="card">
+      <h2>My foods</h2>
+      <p class="muted small">Foods you added when the app didn't recognise them. Calories are per serving.</p>
+      ${customFoods.length ? `<ul class="plan-list">${customFoods.map(f => `<li class="row between"><span>${esc(f.name)}: <b>${f.kcal} kcal</b></span>
+        <button class="chip" data-act="delFood" data-name="${esc(f.name)}">Remove</button></li>`).join('')}</ul>` : '<p class="muted small" style="margin:0">None yet.</p>'}
     </div>
     <div class="card">
       <h2>Install on your phone</h2>
@@ -1019,7 +1158,7 @@ function renderSettings() {
       <p class="muted small">Deletes your answers and every entry on this device. Download a backup first if you might want it.</p>
       <button class="btn danger" data-act="reset">Delete all my data</button>
     </div>
-    <p class="muted small" style="text-align:center">Healthy Living v1.0. Not medical advice.</p>`;
+    <p class="muted small" style="text-align:center">Healthy Living v1.1. Not medical advice.</p>`;
 }
 
 function onSettingsClick(e) {
@@ -1037,9 +1176,12 @@ function onSettingsClick(e) {
       download(`healthy-living-${todayKey()}.csv`, toCSV(), 'text/csv');
       break;
     case 'backup':
-      download(`healthy-living-backup-${todayKey()}.json`,
-        JSON.stringify({ app: 'healthy-living', version: 1, exportedAt: new Date().toISOString(), profile, logs }, null, 2),
-        'application/json');
+      saveBackup();
+      break;
+    case 'delFood':
+      customFoods = customFoods.filter(f => f.name !== b.dataset.name);
+      saveFoods();
+      renderSettings();
       break;
     case 'restore':
       $('#restoreFile').click();
@@ -1048,6 +1190,10 @@ function onSettingsClick(e) {
       if (confirm('Delete your answers and all entries on this device? This cannot be undone.')) {
         localStorage.removeItem(KEY_PROFILE);
         localStorage.removeItem(KEY_LOGS);
+        localStorage.removeItem(KEY_FOODS);
+        localStorage.removeItem(KEY_META);
+        customFoods = [];
+        meta = {};
         profile = null;
         logs = {};
         startQuestionnaire();
@@ -1067,6 +1213,7 @@ function onRestoreFile(e) {
       if (!confirm('Replace the data on this device with this backup?')) return;
       profile = data.profile;
       logs = data.logs;
+      if (Array.isArray(data.foods)) { customFoods = data.foods; saveFoods(); }
       saveProfile();
       saveLogs();
       toast('Backup restored');
@@ -1083,7 +1230,7 @@ function onRestoreFile(e) {
 app.addEventListener('submit', (e) => { if (e.target.id === 'qform') onQuestionnaireSubmit(e); });
 app.addEventListener('input', (e) => {
   if (!currentTab) onQuestionnaireInput(e);
-  else if (currentTab === 'today' && (e.target.dataset.log || e.target.dataset.kcal)) onTodayChange(e);
+  else if (currentTab === 'today' && (e.target.dataset.log || e.target.dataset.kcal || e.target.dataset.food)) onTodayChange(e);
 });
 app.addEventListener('change', (e) => {
   if (e.target.id === 'restoreFile') return onRestoreFile(e);
